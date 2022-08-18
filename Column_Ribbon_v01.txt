@@ -1,0 +1,1280 @@
+import maya.cmds as cmds
+import maya.OpenMaya as OpenMaya
+import sys
+import math
+import maya.mel as mel
+
+
+"""
+________________________________________________________________________________________________________________________________________
+
+
+Create a Ribbon based spine rigg (Need a selected curve)
+
+by Juliette GUEYDAN
+
+
+________________________________________________________________________________________________________________________________________
+"""
+
+
+#__________________________________________________________________________________________________________
+
+#Fonction create offset
+
+offsetVersion=["01","02","03","04","05","06","07","08","09","10"]
+
+def offset(objectName,x):
+	parent=cmds.listRelatives(objectName, p=True, pa=True)
+	cmds.createNode('transform',n=objectName[0]+'_Offset_'+offsetVersion[x])
+	offset=cmds.ls(sl=True)
+	cmds.matchTransform(offset, objectName)
+	cmds.parent(objectName,offset)
+    
+    
+#__________________________________________________________________________________________________________
+
+#Fonction matrice translate and rotate constraint
+
+def MatriceTrRt(x,y):
+    
+    # 1 - Selectionner le Master
+    # 2 - Selectionner le Slave
+
+    sl = cmds.ls(sl=True, sn=True)
+    Master = x
+    Slave = y
+    print(Master)
+    print(Slave)
+
+    # Creation des differents Nodes Matrix
+
+    MultMatX  = cmds.shadingNode('multMatrix',asUtility=True, n='MultMatX_'+Slave)
+    DecMatX = cmds.shadingNode('decomposeMatrix', asUtility=True, n='DecMatX_'+Slave)
+
+    # Connexion de l'Offset, du Slave et du Master dans le Multiply Matrix puis dans le Decompose Matrix
+
+    cmds.connectAttr(Master+'.worldMatrix[0]',MultMatX+'.matrixIn[1]')
+    cmds.connectAttr(Slave+'.parentInverseMatrix[0]',MultMatX+'.matrixIn[2]')
+    cmds.connectAttr(MultMatX+'.matrixSum',DecMatX+'.inputMatrix')
+
+    # Connexion des outputs des Attribts du Decompose Matrix dans les input du Slave
+
+    cmds.connectAttr(DecMatX+'.outputTranslate',Slave+'.t')
+    cmds.connectAttr(DecMatX+'.outputRotate',Slave+'.r')
+
+#__________________________________________________________________________________________________________
+
+#Fonction matrice constraint all
+
+def MatriceAll(x,y):
+    
+    # 1 - Selectionner le Master
+    # 2 - Selectionner le Slave
+
+    sl = cmds.ls(sl=True, sn=True)
+    Master = x
+    Slave = y
+    print(Master)
+    print(Slave)
+
+    # Creation des differents Nodes Matrix
+
+    MultMatX  = cmds.shadingNode('multMatrix',asUtility=True, n='MultMatX_'+Slave)
+    DecMatX = cmds.shadingNode('decomposeMatrix', asUtility=True, n='DecMatX_'+Slave)
+
+    # Connexion de l'Offset, du Slave et du Master dans le Multiply Matrix puis dans le Decompose Matrix
+
+    cmds.connectAttr(Master+'.worldMatrix[0]',MultMatX+'.matrixIn[1]')
+    cmds.connectAttr(Slave+'.parentInverseMatrix[0]',MultMatX+'.matrixIn[2]')
+    cmds.connectAttr(MultMatX+'.matrixSum',DecMatX+'.inputMatrix')
+
+    # Connexion des outputs des Attribts du Decompose Matrix dans les input du Slave
+
+    cmds.connectAttr(DecMatX+'.outputTranslate',Slave+'.t')
+    cmds.connectAttr(DecMatX+'.outputRotate',Slave+'.r')
+    cmds.connectAttr(DecMatX+'.outputScale',Slave+'.s')
+    
+    
+#__________________________________________________________________________________________________________
+
+#Create First Nurb Curve
+
+
+
+cv=cmds.ls(selection=True)
+cmds.rename(cv, "crv_Spine")
+crvSpine="crv_Spine"
+cmds.select(crvSpine)
+cmds.rebuildCurve(s=1, d=1, rpo=True, kt=False, kr=0)
+
+crvSpineInfo = cmds.shadingNode('curveInfo', asUtility=True, n="crvInfo_crvSpine")
+cmds.connectAttr(crvSpine+'.worldSpace[0]', crvSpineInfo+'.inputCurve')
+spineL=cmds.getAttr(crvSpineInfo+'.arcLength')
+
+cmds.select(crvSpine+'.cv[0]')
+cmds.cluster(n="cl_start_spine")
+startSpine=cmds.ls(selection=True)
+cmds.select(clear=True)
+cmds.select(crvSpine+'.cv[1]')
+cmds.cluster(n="cl_end_spine")
+endSpine=cmds.ls(selection=True)
+
+cmds.nurbsPlane(ax=[0,0,1], d=3, u=1, v=2, lr=spineL, n="Spine_Ribbon_lowDef")
+cmds.select("Spine_Ribbon_lowDef")
+cmds.rebuildSurface(rt=0, dir=2, su=1, sv=2, du=1, dv=3, end=1, kc=False, kr=0, rpo=True, kcp=0, n="Spine_Ribbon_rebuildFirst", ch=True )
+mel.eval('source bt_alignPivotToBoundingBoxWin; optionVar -q bt_CenterPivFirst; optionVar -q bt_IndividualBB; bt_alignPivotToBoundingBox 4;')
+cmds.makeIdentity(apply=True, t=1, r=1, s=1, n=0)
+cmds.matchTransform("Spine_Ribbon_lowDef",startSpine,pos=True)
+cmds.delete("Spine_Ribbon_lowDef", constructionHistory = True)
+cmds.makeIdentity(apply=True, t=1, r=1, s=1, n=0)
+
+cmds.select('Spine_Ribbon_lowDef.cv[0:1][2]')
+cmds.cluster(n="cl_mid_spine")
+midSpine=cmds.ls(selection=True)
+
+
+#__________________________________________________________________________________________________________
+
+#First Step
+
+cmds.setAttr("Spine_Ribbon_lowDefShape.uDivisionsFactor", 1.5)
+cmds.setAttr("Spine_Ribbon_lowDefShape.vDivisionsFactor", 1.5)
+cmds.select("Spine_Ribbon_lowDef")
+cmds.rebuildSurface(rt=0, dir=1, su=1, sv=2, du=3, dv=7, end=1, kc=False, kr=0, rpo=False, n="Spine_Ribbon_highDef", ch=True )
+cmds.rename("rebuildSurface1", "rebuildSurface_SpineRibbon")
+
+cmds.duplicate("crv_Spine", n="crv_Ribbon_isoparm")
+cmds.select(clear=True)
+cmds.select("crv_Ribbon_isoparm")
+crvIso=cmds.ls(sl=True)
+
+crvFromSIso = cmds.shadingNode('curveFromSurfaceIso', asUtility=True, n="crvFromSurfaceIso_RibbonSpine")
+cmds.connectAttr("rebuildSurface_SpineRibbon.outputSurface", crvFromSIso+'.inputSurface')
+cmds.setAttr(crvFromSIso+'.isoparmValue', 0.5)
+cmds.setAttr(crvFromSIso+'.isoparmDirection', 1)
+cmds.connectAttr(crvFromSIso+'.outputCurve', crvIso[0]+'.create')
+cmds.spaceLocator(n="Loc_Info_Initial_Length")
+locInitial=cmds.ls(sl=True)
+cmds.spaceLocator(n="Loc_Info_Squash_Chest")
+locInfoSquash=cmds.ls(sl=True)
+cmds.spaceLocator(n="Loc_MovableRotate_Pivot_Chest_IK")
+locMovRotChest=cmds.ls(sl=True)
+cmds.select(locInitial, locInfoSquash)
+cmds.group(n='GRP_Locs')
+if cmds.objExists('ExtraNodes_01'):
+    if cmds.objExists('ExtraNodes_To_Hide'):
+        cmds.parent('GRP_Locs','ExtraNodes_To_Hide')
+    else:
+        cmds.createNode('transform',n="ExtraNodes_To_Hide")
+        cmds.parent("ExtraNodes_To_Hide", "ExtraNodes_01")
+        cmds.parent('GRP_Locs','ExtraNodes_To_Hide')
+else:
+    cmds.createNode('transform',n="ExtraNodes_01")
+    cmds.createNode('transform',n="ExtraNodes_To_Hide")
+    cmds.parent("ExtraNodes_To_Hide", "ExtraNodes_01")
+    cmds.parent('GRP_Locs','ExtraNodes_To_Hide')
+    
+cmds.matchTransform(locInitial,endSpine,pos=True)
+cmds.matchTransform(locInfoSquash,endSpine,pos=True)
+cmds.matchTransform(locMovRotChest,endSpine,pos=True)
+
+offset(locInitial,0)
+offset(locInfoSquash,0)
+
+cmds.circle(n="CTRL_Ik_Chest", r=3)
+CTRL_IkChest=cmds.ls(sl=True)
+cmds.matchTransform(CTRL_IkChest, locMovRotChest)
+offset(CTRL_IkChest,0)
+cmds.select(CTRL_IkChest[0]+'_Offset_01')
+cmds.makeIdentity(apply=True, t=1, r=1, s=1, n=0)
+
+cmds.circle(n="CTRL_UpperBody", r=2)
+UpperBody=cmds.ls(sl=True)
+cmds.matchTransform(UpperBody, startSpine)
+offset(UpperBody,0)
+
+cmds.circle(n="CTRL_Fk_Mid", r=2)
+Fk_Mid=cmds.ls(selection=True)
+cmds.matchTransform(Fk_Mid, midSpine)
+offset(Fk_Mid,0)
+cmds.parent(Fk_Mid[0]+'_Offset_01',UpperBody)
+
+cmds.circle(n="CTRL_Fk_Chest", r=2)
+Fk_Chest=cmds.ls(selection=True)
+cmds.matchTransform(Fk_Chest, endSpine)
+offset(Fk_Chest,0)
+cmds.parent(Fk_Chest[0]+'_Offset_01',Fk_Mid)
+
+cmds.parent(CTRL_IkChest[0]+'_Offset_01', Fk_Chest)
+cmds.select(CTRL_IkChest[0]+'_Offset_01')
+cmds.makeIdentity(apply=True, t=1, r=1, s=1, n=0)
+cmds.select(clear=True)
+
+cmds.select(locMovRotChest)
+cmds.makeIdentity(apply=True, t=1, r=1, s=1, n=0, pn=1)
+cmds.parent(locMovRotChest,CTRL_IkChest)
+cmds.makeIdentity(apply=True, t=1, r=1, s=1, n=0, pn=1)
+t=spineL/8
+cmds.setAttr(locMovRotChest[0]+".translateY",-t)
+
+cmds.select(Fk_Chest)
+cmds.connectAttr(locMovRotChest[0]+".translate",CTRL_IkChest[0]+'.rotatePivot')
+cmds.matchTransform(Fk_Chest,CTRL_IkChest[0],piv=True,pos=False,rot=False,scl=False)
+
+cmds.duplicate("crv_Spine",n="crv_Squash_Offset")
+cmds.select("crv_Squash_Offset")
+crvSquash=cmds.ls(selection=True)
+
+cmds.connectAttr(locInfoSquash[0]+'.worldPosition[0]',crvSquash[0]+'.controlPoints[0]')
+cmds.connectAttr(locInitial[0]+'.worldPosition[0]',crvSquash[0]+'.controlPoints[1]')
+
+attachCrv=cmds.shadingNode('attachCurve', asUtility=True, n="attachCurve_RibbonSpine")
+cmds.connectAttr(crvIso[0]+'.worldSpace[0]',attachCrv+'.inputCurve1')
+cmds.connectAttr(crvSquash[0]+'.worldSpace[0]',attachCrv+'.inputCurve2')
+
+rebuildCrv=cmds.shadingNode('rebuildCurve', asUtility=True, n="rebuildCurveExtendedRibbon")
+cmds.connectAttr(attachCrv+'.outputCurve',rebuildCrv+'.inputCurve')
+cmds.setAttr(rebuildCrv+'.spans',6)
+cmds.setAttr(rebuildCrv+'.keepRange',0)
+cmds.setAttr(rebuildCrv+'.keepTangents',0)
+
+#__________________________________________________________________________________________________________
+
+#Create Loc_Axis_Mid_Spine_Info and connect all offset
+
+cmds.spaceLocator(n="Loc_Axis_Mid_Spine_Info")
+locAxisMid=cmds.ls(selection=True)
+offset(locAxisMid,0)
+cmds.select(locAxisMid[0]+"_Offset_01")
+locAxisMidOffset1=cmds.ls(selection=True)
+offset(locAxisMidOffset1,1)
+cmds.select(locAxisMidOffset1[0]+"_Offset_02")
+locAxisMidOffset2=cmds.ls(selection=True)
+
+addTYMidChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Ty_Mid_Chest")
+addTXMidChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Tx_Mid_Chest")
+addTZMidChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Tz_Mid_Chest")
+multSYUpB=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Sy_UpperBody")
+
+cmds.connectAttr(Fk_Chest[0]+'_Offset_01.translateY',addTYMidChest+'.input1')
+cmds.connectAttr(Fk_Mid[0]+'_Offset_01.translateY',addTYMidChest+'.input2')
+cmds.connectAttr(Fk_Chest[0]+'_Offset_01.translateX',addTXMidChest+'.input1')
+cmds.connectAttr(Fk_Mid[0]+'_Offset_01.translateX',addTXMidChest+'.input2')
+cmds.connectAttr(Fk_Chest[0]+'_Offset_01.translateZ',addTZMidChest+'.input1')
+cmds.connectAttr(Fk_Mid[0]+'_Offset_01.translateZ',addTZMidChest+'.input2')
+
+cmds.connectAttr(addTYMidChest+'.output', multSYUpB+'.input2')
+cmds.connectAttr(UpperBody[0]+'.scaleY', multSYUpB+'.input1')
+cmds.connectAttr(multSYUpB+'.output',locAxisMidOffset1[0]+'.translateY')
+cmds.connectAttr(addTXMidChest+'.output',locAxisMidOffset1[0]+'.translateX')
+cmds.connectAttr(addTZMidChest+'.output',locAxisMidOffset1[0]+'.translateZ')
+
+MatriceTrRt(UpperBody[0],locAxisMidOffset2[0])
+
+addTYChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Ty_Chest")
+addTXChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Tx_Chest")
+addTZChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Tz_Chest")
+
+cmds.connectAttr(Fk_Chest[0]+'.translateY',addTYChest+'.input1')
+cmds.connectAttr(CTRL_IkChest[0]+'.translateY',addTYChest+'.input2')
+cmds.connectAttr(Fk_Chest[0]+'.translateX',addTXChest+'.input1')
+cmds.connectAttr(CTRL_IkChest[0]+'.translateX',addTXChest+'.input2')
+cmds.connectAttr(Fk_Chest[0]+'.translateZ',addTZChest+'.input1')
+cmds.connectAttr(CTRL_IkChest[0]+'.translateZ',addTZChest+'.input2')
+
+cmds.connectAttr(addTYChest+'.output',locAxisMid[0]+'.translateY')
+cmds.connectAttr(addTXChest+'.output',locAxisMid[0]+'.translateX')
+cmds.connectAttr(addTZChest+'.output',locAxisMid[0]+'.translateZ')
+
+cmds.parent(locAxisMidOffset2[0],"GRP_Locs")
+
+
+#__________________________________________________________________________________________________________
+
+#Ctrl Option -> Attributs
+
+cmds.select(clear=True)
+cmds.circle(n="CTRL_Options", r=0.5)
+cmds.select("CTRL_Options")
+ctrlOptions=cmds.ls(selection=True)
+cmds.matchTransform(ctrlOptions[0],midSpine)
+cmds.setAttr(ctrlOptions[0]+'.translateZ',-3)
+offset(ctrlOptions,0)
+cmds.parent(ctrlOptions[0]+'_Offset_01',Fk_Mid[0])
+
+cmds.addAttr(ctrlOptions, longName='Joint_Visibility', attributeType='bool', dv=1)
+cmds.setAttr(ctrlOptions[0]+'.Joint_Visibility', channelBox=True )
+cmds.setAttr(ctrlOptions[0]+'.Joint_Visibility', keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='IK_Visibility', attributeType='bool', dv=1)
+cmds.setAttr(ctrlOptions[0]+'.IK_Visibility', channelBox=True )
+cmds.setAttr(ctrlOptions[0]+'.IK_Visibility', keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='FK_Visibility', attributeType='bool', dv=1)
+cmds.setAttr(ctrlOptions[0]+'.FK_Visibility', channelBox=True )
+cmds.setAttr(ctrlOptions[0]+'.FK_Visibility', keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Level_Details', attributeType='long', minValue=1, maxValue=3, dv=2)
+cmds.setAttr(ctrlOptions[0]+".Level_Details", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Level_Details", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='_______', attributeType='enum', enumName='_______')
+cmds.setAttr(ctrlOptions[0]+'._______', channelBox=True )
+cmds.setAttr(ctrlOptions[0]+'._______', keyable=True )
+
+cmds.addAttr(ctrlOptions, longName='STRETCH', attributeType='float', minValue=0, maxValue=1, dv=1)
+cmds.setAttr(ctrlOptions[0]+".STRETCH", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".STRETCH", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Stretch_Max', attributeType='float', minValue=0, maxValue=1, dv=1)
+cmds.setAttr(ctrlOptions[0]+".Stretch_Max", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Stretch_Max", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Stretch_Volume', attributeType='float', minValue=0, maxValue=1, dv=1)
+cmds.setAttr(ctrlOptions[0]+".Stretch_Volume", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Stretch_Volume", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='SQUASH', attributeType='float', minValue=0, maxValue=1, dv=1)
+cmds.setAttr(ctrlOptions[0]+".SQUASH", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".SQUASH", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Squash_Min', attributeType='float', minValue=0, maxValue=1, dv=1)
+cmds.setAttr(ctrlOptions[0]+".Squash_Min", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Squash_Min", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Squash_Volume', attributeType='float', minValue=0, maxValue=1, dv=1)
+cmds.setAttr(ctrlOptions[0]+".Squash_Volume", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Squash_Volume", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='________', attributeType='enum', enumName='________')
+cmds.setAttr(ctrlOptions[0]+'.________', channelBox=True )
+cmds.setAttr(ctrlOptions[0]+'.________', keyable=True )
+
+cmds.addAttr(ctrlOptions, longName='Twist_Chest', attributeType='float')
+cmds.setAttr(ctrlOptions[0]+".Twist_Chest", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Twist_Chest", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Twist_Mid', attributeType='float')
+cmds.setAttr(ctrlOptions[0]+".Twist_Mid", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Twist_Mid", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Twist_Pelvis', attributeType='float')
+cmds.setAttr(ctrlOptions[0]+".Twist_Pelvis", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Twist_Pelvis", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='______', attributeType='enum', enumName='______')
+cmds.setAttr(ctrlOptions[0]+'.______', channelBox=True )
+cmds.setAttr(ctrlOptions[0]+'.______', keyable=True )
+
+cmds.addAttr(ctrlOptions, longName='Volume_Activation', attributeType='bool', dv=1)
+cmds.setAttr(ctrlOptions[0]+'.Volume_Activation', channelBox=True )
+cmds.setAttr(ctrlOptions[0]+'.Volume_Activation', keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Volume_Factor', attributeType='float', minValue=0, maxValue=10, dv=1)
+cmds.setAttr(ctrlOptions[0]+".Volume_Factor", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Volume_Factor", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Volume_Offset', attributeType='float', minValue=-0.6, maxValue=0.6)
+cmds.setAttr(ctrlOptions[0]+".Volume_Offset", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Volume_Offset", keyable=True)
+
+cmds.addAttr(ctrlOptions, longName='Volume_Intensity', attributeType='float', minValue=0, maxValue=0.5)
+cmds.setAttr(ctrlOptions[0]+".Volume_Intensity", channelBox=True )
+cmds.setAttr(ctrlOptions[0]+".Volume_Intensity", keyable=True)
+
+#__________________________________________________________________________________________________________
+
+#Creation des joints
+
+cmds.createNode('transform',n="Joint_Spine")
+cmds.select(clear=True)
+cmds.joint(n="Bind_Chest")
+BindChest=cmds.ls(selection=True)
+offset(BindChest,0)
+cmds.parent('Bind_Chest_Offset_01', "Joint_Spine")
+cmds.select(clear=True)
+cmds.joint(n="Bind_Pelvis")
+BindPelvis=cmds.ls(selection=True)
+offset(BindPelvis,0)
+cmds.parent('Bind_Pelvis_Offset_01', "Joint_Spine")
+
+for x in range(1,6):
+    cmds.select(clear=True)
+    cmds.joint(n="Bind_RibbonSpine_0"+str(x))
+    cmds.circle(n="CTRL_RibbonSpine_0"+str(x), r=1)
+    cmds.parent("Bind_RibbonSpine_0"+str(x),"CTRL_RibbonSpine_0"+str(x))
+    cmds.select(clear=True)
+    cmds.select("CTRL_RibbonSpine_0"+str(x))
+    cmds.group(n="TwistScale_RibbonSpine_0"+str(x))
+    cmds.select("TwistScale_RibbonSpine_0"+str(x))
+    twistScale=cmds.ls(selection=True)
+    offset(twistScale,0)
+    cmds.rename("TwistScale_RibbonSpine_0"+str(x)+'_Offset_01', "RibbonSpine_0"+str(x)+'_Offset_01')
+    cmds.parent("RibbonSpine_0"+str(x)+'_Offset_01', "Joint_Spine")
+
+#__________________________________________________________________________________________________________    
+
+#Placements des Joints
+
+
+cmds.select('RibbonSpine_*Offset_01')
+OffsetLst=cmds.ls(selection=True)
+"""
+OffsetLst.insert(0,"Bind_Pelvis_Offset_01")
+"""
+OffsetLst.append("Bind_Chest_Offset_01")
+
+cmds.select(OffsetLst)
+OBJlst=cmds.ls(selection=True)
+
+
+crvISOInfo = cmds.shadingNode('curveInfo', asUtility=True, n="crvInfo_Ribbon_isoparm")
+cmds.connectAttr(crvFromSIso+'.outputCurve', crvISOInfo+'.inputCurve')
+divInitialLength=cmds.shadingNode('multiplyDivide', asUtility=True, n="div_crv_by_Initial_Length")
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',divInitialLength+'.input1X')
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',divInitialLength+'.input2X')
+cmds.setAttr(divInitialLength+'.operation',2)
+
+y=[0.167,0.334,0.5,0.668,0.835,1]
+
+for x in range(0,6):
+    
+    #Creation Nodes
+    multTYAxisInfo=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Param_Point_0"+str(x)+"_NoStretch_Default")
+    divArcLenght=cmds.shadingNode('multiplyDivide', asUtility=True, n="div_Param_Point_0"+str(x)+"_by_arcLength")
+    condStretchFactor=cmds.shadingNode('condition', asUtility=True, n="cond_StretchFactor_negativeValues_0"+str(x))
+    blendClStretchFactor=cmds.shadingNode('blendColors', asUtility=True, n="BlendCl_StretchFactor_0"+str(x))
+    divPoint=cmds.shadingNode('multiplyDivide', asUtility=True, n="div_Point_0"+str(x))
+    PointCrInfo=cmds.shadingNode('pointOnCurveInfo', asUtility=True, n="PointCrvInfo_Joint_0"+str(x))
+    
+    #Connect Nodes (Kill me please T-T)
+    #Part01
+    cmds.connectAttr(crvISOInfo+'.arcLength',divArcLenght+'.input2X')
+    cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',multTYAxisInfo+'.input2')
+    cmds.connectAttr(multTYAxisInfo+'.output', divArcLenght+'.input1X')
+    cmds.connectAttr(divArcLenght+'.outputX', condStretchFactor+'.firstTerm')
+    cmds.connectAttr(divArcLenght+'.outputX', condStretchFactor+'.colorIfTrueR')
+    cmds.connectAttr(multTYAxisInfo+'.input1', condStretchFactor+'.colorIfFalseR')
+    cmds.connectAttr(multTYAxisInfo+'.input1', condStretchFactor+'.secondTerm')
+    cmds.connectAttr(multTYAxisInfo+'.input1', blendClStretchFactor+'.color1R')
+    cmds.connectAttr(condStretchFactor+'.outColorR', blendClStretchFactor+'.color2R')
+    cmds.connectAttr(ctrlOptions[0]+'.STRETCH', blendClStretchFactor+'.blender')
+    cmds.connectAttr(blendClStretchFactor+'.outputR', divPoint+'.input1X')
+    cmds.connectAttr(divInitialLength+'.outputX', divPoint+'.input2X')
+    cmds.connectAttr(divPoint+'.outputX',PointCrInfo+'.parameter')
+    cmds.connectAttr(rebuildCrv+'.outputCurve',PointCrInfo+'.inputCurve')
+    
+    #Set Attr
+    cmds.setAttr(divArcLenght+'.operation',2)
+    cmds.setAttr(multTYAxisInfo+'.input1',y[x])
+    cmds.setAttr(condStretchFactor+'.operation',4)
+    cmds.setAttr(divPoint+'.operation',2)
+    
+    #Finish
+    cmds.connectAttr(PointCrInfo+'.position',OBJlst[x]+'.translate')
+
+    
+    
+#__________________________________________________________________________________________________________    
+
+#Creation derniers Locators
+
+cmds.circle(n="CTRL_Ik_Pelvis", r=3)
+CTRL_IkPelvis=cmds.ls(selection=True)
+cmds.matchTransform(CTRL_IkPelvis[0], startSpine)
+offset(CTRL_IkPelvis,0)
+cmds.parent(CTRL_IkPelvis[0]+"_Offset_01",UpperBody[0])
+
+MatriceAll(CTRL_IkPelvis[0],"Bind_Pelvis_Offset_01")
+
+cmds.spaceLocator(n="Loc_MovableRotate_Pivot_Chest_FK")
+locMovRotChestFK=cmds.ls(selection=True)
+cmds.matchTransform(locMovRotChestFK,locMovRotChest)
+cmds.parent(locMovRotChestFK, Fk_Chest)
+cmds.connectAttr(locMovRotChestFK[0]+".translate",Fk_Chest[0]+'.rotatePivot')
+
+cmds.spaceLocator(n="Loc_Info_Pelvis")
+locInfoPelvis=cmds.ls(selection=True)
+cmds.matchTransform(locInfoPelvis,startSpine)
+offset(locInfoPelvis,0)
+MatriceAll(CTRL_IkPelvis[0],locInfoPelvis[0]+'_Offset_01')
+
+cmds.spaceLocator(n="Loc_axis_Mid_Ik_Pelvis")
+locAxisIkPelvis=cmds.ls(selection=True)
+cmds.matchTransform(locAxisIkPelvis,startSpine)
+offset(locAxisIkPelvis,0)
+MatriceAll(CTRL_IkPelvis[0],'Loc_axis_Mid_Ik_Pelvis_Offset_01')
+cmds.aimConstraint(locAxisMid[0],locAxisIkPelvis[0],aim=[0.0,1.0,0.0], u=[1.0,0.0,0.0], wut="objectrotation", wuo=CTRL_IkPelvis[0],wu=[1.0,0.0,0.0])
+
+cmds.shadingNode('distanceBetween', asUtility=True, n="distBetween_Pelvis_Chest")
+cmds.connectAttr(locAxisMid[0]+'.worldPosition[0]',"distBetween_Pelvis_Chest.point1")
+cmds.connectAttr(locInfoPelvis[0]+'.worldPosition[0]',"distBetween_Pelvis_Chest.point2")
+divDistBetween=cmds.shadingNode('multiplyDivide', asUtility=True, n="div_distBetween_by_InitialLength")
+cmds.setAttr(divDistBetween+'.operation',2)
+cmds.connectAttr("distBetween_Pelvis_Chest.distance", divDistBetween+'.input1X')
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY', divDistBetween+'.input2X')
+cmds.connectAttr(divDistBetween+'.outputX',locAxisIkPelvis[0]+'.scaleY')
+
+cmds.parent(locInfoPelvis[0]+'_Offset_01',"GRP_Locs")
+cmds.parent(locAxisIkPelvis[0]+'_Offset_01',"GRP_Locs")
+cmds.parent(locInfoSquash[0]+'_Offset_01',"GRP_Locs")
+cmds.parent(locInitial[0]+'_Offset_01',"GRP_Locs")
+
+
+#__________________________________________________________________________________________________________    
+
+#Creation CTRLs_Tangents and CTRL_Ik_Mid
+
+cmds.circle(n="CTRL_Ik_Mid", r=3)
+CTRL_IkMid=cmds.ls(selection=True)
+offset(CTRL_IkMid,0)
+cmds.rename(CTRL_IkMid[0]+'_Offset_01',"Rotation_Ik_Mid_Offset")
+cmds.select("Rotation_Ik_Mid_Offset")
+RotIkMid=cmds.ls(selection=True)
+cmds.createNode('transform',n="Const_Ik_Mid")
+ConstIkMid=cmds.ls(selection=True)
+cmds.createNode('transform',n="Root_Ik_Mid")
+RootIkMid=cmds.ls(selection=True)
+cmds.parent(RotIkMid,ConstIkMid)
+cmds.parent(ConstIkMid,RootIkMid)
+cmds.matchTransform(RootIkMid[0], midSpine)
+cmds.parent(RootIkMid,UpperBody[0])
+
+
+cmds.circle(n="CTRL_Tangent_Chest", r=0.5)
+CTRL_TanChest=cmds.ls(selection=True)
+offset(CTRL_TanChest,0)
+cmds.parent(CTRL_TanChest[0]+"_Offset_01",CTRL_IkChest[0])
+
+
+cmds.circle(n="CTRL_Tangent_Pelvis", r=0.5)
+CTRL_TanPelvis=cmds.ls(selection=True)
+offset(CTRL_TanPelvis,0)
+cmds.rename(CTRL_TanPelvis[0]+"_Offset_01","Rotation_Tangent_Pelvis_Offset")
+cmds.select("Rotation_Tangent_Pelvis_Offset")
+RotTanPelvisOff=cmds.ls(selection=True)
+offset(RotTanPelvisOff,0)
+cmds.rename("Rotation_Tangent_Pelvis_Offset_Offset_01","Tangent_Pelvis_Offset")
+cmds.select("Tangent_Pelvis_Offset")
+TanPelvisOff=cmds.ls(selection=True)
+cmds.parent(TanPelvisOff[0],CTRL_IkPelvis[0])
+
+
+#__________________________________________________________________________________________________________    
+
+#Creation Attribut Supp
+
+cmds.addAttr(Fk_Chest, longName='________', attributeType='enum', enumName='________')
+cmds.setAttr(Fk_Chest[0]+'.________', channelBox=True )
+cmds.setAttr(Fk_Chest[0]+'.________', keyable=True )
+
+cmds.addAttr(Fk_Chest, longName='Tangent_Visibility', attributeType='bool')
+cmds.setAttr(Fk_Chest[0]+'.Tangent_Visibility', channelBox=True )
+cmds.setAttr(Fk_Chest[0]+'.Tangent_Visibility', keyable=True)
+
+cmds.addAttr(Fk_Chest, longName='Tangent_Factor_Up', attributeType='float', dv=0.005, minValue=0.005, maxValue=0.75)
+cmds.setAttr(Fk_Chest[0]+'.Tangent_Factor_Up', channelBox=True )
+cmds.setAttr(Fk_Chest[0]+'.Tangent_Factor_Up', keyable=True)
+
+cmds.addAttr(CTRL_IkMid, longName='________', attributeType='enum', enumName='________')
+cmds.setAttr(CTRL_IkMid[0]+'.________', channelBox=True )
+cmds.setAttr(CTRL_IkMid[0]+'.________', keyable=True )
+
+cmds.addAttr(CTRL_IkMid, longName='Rotation_Factor', attributeType='float', dv=0.02, minValue=-1, maxValue=1)
+cmds.setAttr(CTRL_IkMid[0]+'.Rotation_Factor', channelBox=True )
+cmds.setAttr(CTRL_IkMid[0]+'.Rotation_Factor', keyable=True )
+
+cmds.addAttr(Fk_Mid, longName='________', attributeType='enum', enumName='________')
+cmds.setAttr(Fk_Mid[0]+'.________', channelBox=True )
+cmds.setAttr(Fk_Mid[0]+'.________', keyable=True )
+
+cmds.addAttr(Fk_Mid, longName='Rotation_Tangent', attributeType='float', dv=0, minValue=0, maxValue=1)
+cmds.setAttr(Fk_Mid[0]+'.Rotation_Tangent', channelBox=True )
+cmds.setAttr(Fk_Mid[0]+'.Rotation_Tangent', keyable=True )
+
+cmds.addAttr(Fk_Mid, longName='Rotation_Tangent_Factor', attributeType='float', dv=1000, minValue=0)
+cmds.setAttr(Fk_Mid[0]+'.Rotation_Tangent_Factor', channelBox=True )
+cmds.setAttr(Fk_Mid[0]+'.Rotation_Tangent_Factor', keyable=True )
+
+cmds.addAttr(UpperBody, longName='________', attributeType='enum', enumName='________')
+cmds.setAttr(UpperBody[0]+'.________', channelBox=True )
+cmds.setAttr(UpperBody[0]+'.________', keyable=True )
+
+cmds.addAttr(UpperBody, longName='Tangent_Visibility', attributeType='bool')
+cmds.setAttr(UpperBody[0]+'.Tangent_Visibility', channelBox=True )
+cmds.setAttr(UpperBody[0]+'.Tangent_Visibility', keyable=True)
+
+cmds.addAttr(UpperBody, longName='Tangent_Factor_Down', attributeType='float', dv=0.02, minValue=0, maxValue=0.8)
+cmds.setAttr(UpperBody[0]+'.Tangent_Factor_Down', channelBox=True )
+cmds.setAttr(UpperBody[0]+'.Tangent_Factor_Down', keyable=True)
+
+
+#__________________________________________________________________________________________________________    
+
+#Connections CTRL_Tangent_Chest_Offset
+
+factorTanChest=cmds.shadingNode('multDoubleLinear', asUtility=True, n="factor_Tangent_Chest")
+invFactorMidIk=cmds.shadingNode('multDoubleLinear', asUtility=True, n="invert_Factor_Z_rot_Mid_Ik")
+multRotXIkMid=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Rotation_X_Ik_Mid_01")
+ArcLFactorTanChest=cmds.shadingNode('multDoubleLinear', asUtility=True, n="ArcLength_by_factor_Tangent_Chest")
+multRotZIkMid=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Rotation_Z_Ik_Mid_01")
+
+cmds.connectAttr(Fk_Chest[0]+'.Tangent_Factor_Up',factorTanChest+'.input1')
+cmds.setAttr(factorTanChest+'.input2',-1)
+cmds.connectAttr(factorTanChest+'.output',ArcLFactorTanChest+'.input1')
+cmds.connectAttr("distBetween_Pelvis_Chest.distance",ArcLFactorTanChest+'.input2')
+
+cmds.shadingNode('multiplyDivide', asUtility=True, n="mult_Scale_UpperBody_TangentChest")
+cmds.connectAttr(ArcLFactorTanChest+'.output',"mult_Scale_UpperBody_TangentChest.input1X")
+cmds.connectAttr(UpperBody[0]+'.scaleY',"mult_Scale_UpperBody_TangentChest.input2X")
+cmds.connectAttr("mult_Scale_UpperBody_TangentChest.outputX",CTRL_TanChest[0]+"_Offset_01.translateY")
+
+cmds.connectAttr(CTRL_IkMid[0]+'.Rotation_Factor',invFactorMidIk+'.input1')
+cmds.setAttr(invFactorMidIk+'.input2',-1)
+cmds.connectAttr(factorTanChest+'.output',multRotZIkMid+'.input2')
+cmds.connectAttr(CTRL_IkMid[0]+'.rotateZ',multRotZIkMid+'.input1')
+cmds.connectAttr(multRotZIkMid+'.output',CTRL_TanChest[0]+"_Offset_01.translateX")
+
+cmds.connectAttr(CTRL_IkMid[0]+'.rotateX',multRotXIkMid+'.input1')
+cmds.connectAttr(CTRL_IkMid[0]+'.Rotation_Factor',multRotXIkMid+'.input2')
+cmds.connectAttr(multRotXIkMid+'.output',CTRL_TanChest[0]+"_Offset_01.translateZ")
+
+
+#__________________________________________________________________________________________________________    
+
+#Connection Rotation_Tangent_Pelvis_Offset
+
+multTanRotFactorX=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Tangent_Rotation_Factor_X")
+multRotFkMid=cmds.shadingNode('multiplyDivide', asUtility=True, n="mult_Rotation_Fk_Mid")
+multResAxisMidOff=cmds.shadingNode('multiplyDivide', asUtility=True, n="Mult_multRotFkMid_by_locAxisMidOffset1")
+condRotTanFactor=cmds.shadingNode('condition', asUtility=True, n="cond_Rotation_Tangent_Factor")
+
+cmds.connectAttr(Fk_Mid[0]+'.Rotation_Tangent_Factor',multTanRotFactorX+'.input1')
+cmds.setAttr(multTanRotFactorX+'.input2',-1)
+
+cmds.connectAttr(multTanRotFactorX+'.output',multRotFkMid+'.input2X')
+cmds.connectAttr(Fk_Mid[0]+'.Rotation_Tangent_Factor',multRotFkMid+'.input2Y')
+cmds.connectAttr(Fk_Mid[0]+'.rotateX',multRotFkMid+'.input1X')
+cmds.connectAttr(Fk_Mid[0]+'.rotateZ',multRotFkMid+'.input1Y')
+
+cmds.connectAttr(multRotFkMid+'.outputX',multResAxisMidOff+'.input2X')
+cmds.connectAttr(multRotFkMid+'.outputY',multResAxisMidOff+'.input2Y')    
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',multResAxisMidOff+'.input1Y')
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',multResAxisMidOff+'.input1X')
+
+cmds.setAttr(condRotTanFactor+'.operation',0)
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',condRotTanFactor+'.firstTerm') 
+cmds.setAttr(condRotTanFactor+'.secondTerm',1)
+cmds.setAttr(condRotTanFactor+'.colorIfFalseR',0)
+cmds.setAttr(condRotTanFactor+'.colorIfFalseG',0)
+cmds.connectAttr(multResAxisMidOff+'.outputX',condRotTanFactor+'.colorIfTrueR')
+cmds.connectAttr(multResAxisMidOff+'.outputY',condRotTanFactor+'.colorIfTrueG')
+
+cmds.connectAttr(condRotTanFactor+'.outColorR',RotTanPelvisOff[0]+'.translateZ')
+cmds.connectAttr(condRotTanFactor+'.outColorR',RotTanPelvisOff[0]+'.translateX')
+
+
+#__________________________________________________________________________________________________________    
+
+#Connection Tangent_Pelvis_Offset
+
+factorTanPelvis=cmds.shadingNode('multDoubleLinear', asUtility=True, n="factor_Tangent_Pelvis")
+ArcLFactorTanPelvis=cmds.shadingNode('multDoubleLinear', asUtility=True, n="ArcLength_by_factor_Tangent_Pelvis")
+multScaleUpBodyTanPelvis=cmds.shadingNode('multiplyDivide', asUtility=True, n="Mult_Scale_UpperBody_TangentPelvis")
+multRotZIkMid2=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Rotation_Z_Ik_Mid_02")
+multRotXIkMid2=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Rotation_X_Ik_Mid_02")
+
+cmds.connectAttr(UpperBody[0]+'.Tangent_Factor_Down',factorTanPelvis+'.input1')
+cmds.setAttr(factorTanPelvis+'.input2',1)
+
+cmds.connectAttr(factorTanPelvis+'.output',ArcLFactorTanPelvis+'.input2')
+cmds.connectAttr("distBetween_Pelvis_Chest.distance",ArcLFactorTanPelvis+'.input1')
+
+cmds.connectAttr(ArcLFactorTanPelvis+'.output',multScaleUpBodyTanPelvis+'.input1X')
+cmds.connectAttr(UpperBody[0]+'.scaleY',multScaleUpBodyTanPelvis+'.input2X')
+cmds.connectAttr(multScaleUpBodyTanPelvis+'.outputX',TanPelvisOff[0]+'.translateY')
+
+cmds.connectAttr(CTRL_IkMid[0]+'.rotateZ',multRotZIkMid2+'.input1')
+cmds.connectAttr(CTRL_IkMid[0]+'.Rotation_Factor',multRotZIkMid2+'.input2')
+cmds.connectAttr(multRotZIkMid2+'.output',TanPelvisOff[0]+'.translateX')
+
+cmds.connectAttr(invFactorMidIk+'.output',multRotXIkMid2+'.input2')
+cmds.connectAttr(CTRL_IkMid[0]+'.rotateX',multRotXIkMid2+'.input1')
+cmds.connectAttr(multRotXIkMid2+'.output',TanPelvisOff[0]+'.translateZ')
+
+
+#__________________________________________________________________________________________________________ 
+
+#Ribbon's Controls Point
+
+    #Create Nodes
+cmds.delete("Spine_Ribbon_lowDef", constructionHistory = True)
+MatriceAll(CTRL_IkChest[0],locInfoSquash[0]+'_Offset_01')
+    
+cmSideL=cmds.shadingNode('composeMatrix', asUtility=True, n="cM_Side_Offset_L")
+cmSideR=cmds.shadingNode('composeMatrix', asUtility=True, n="cM_Side_Offset_R")
+cmds.setAttr(cmSideL+'.inputTranslateX',0.5)
+cmds.setAttr(cmSideR+'.inputTranslateX',-0.5)
+
+
+MTXIkPelvisL=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Pelvis_L")
+MTXIkPelvisR=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Pelvis_R")
+MTXIkTanPelvisL=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Tangent_Pelvis_L")
+MTXIkTanPelvisR=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Tangent_Pelvis_R")
+MTXIkMidL=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Mid_L")
+MTXIkMidR=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Mid_R")
+MTXIkTanChestL=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Tangent_Chest_L")
+MTXIkTanChestR=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Tangent_Chest_R")
+MTXIkChestL=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Chest_L")
+MTXIkChestR=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Ik_Chest_R")
+
+
+dmIkPelvisL=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Pelvis_L")
+dmIkPelvisR=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Pelvis_R")
+dmIkTanPelvisL=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Tangent_Pelvis_L")
+dmIkTanPelvisR=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Tangent_Pelvis_R")
+dmIkMidL=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Mid_L")
+dmIkMidR=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Mid_R")
+dmIkTanChestL=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Tangent_Chest_L")
+dmIkTanChestR=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Tangent_Chest_R")
+dmIkChestL=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Chest_L")
+dmIkChestR=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Ik_Chest_R")
+
+
+MTXL=[MTXIkPelvisL,MTXIkTanPelvisL,MTXIkMidL,MTXIkTanChestL,MTXIkChestL]
+MTXR=[MTXIkPelvisR,MTXIkTanPelvisR,MTXIkMidR,MTXIkTanChestR,MTXIkChestR]
+dmMTXL=[dmIkPelvisL,dmIkTanPelvisL,dmIkMidL,dmIkTanChestL,dmIkChestL]
+dmMTXR=[dmIkPelvisR,dmIkTanPelvisR,dmIkMidR,dmIkTanChestR,dmIkChestR]
+ctrlsMTX=[CTRL_IkPelvis[0],CTRL_TanPelvis[0],CTRL_IkMid[0],CTRL_TanChest[0],CTRL_IkChest[0]]
+
+y=[5,6,7,8,9]
+
+for x in range(0,len(MTXL)):
+    cmds.connectAttr(cmSideL+'.outputMatrix',MTXL[x]+'.matrixIn[0]')
+    cmds.connectAttr(cmSideR+'.outputMatrix',MTXR[x]+'.matrixIn[0]')
+    
+    cmds.connectAttr(ctrlsMTX[x]+'.worldMatrix[0]',MTXL[x]+'.matrixIn[1]')
+    cmds.connectAttr(ctrlsMTX[x]+'.worldMatrix[0]',MTXR[x]+'.matrixIn[1]')
+    
+    cmds.connectAttr(MTXL[x]+'.matrixSum',dmMTXL[x]+'.inputMatrix')
+    cmds.connectAttr(MTXR[x]+'.matrixSum',dmMTXR[x]+'.inputMatrix')
+    
+    cmds.connectAttr(dmMTXR[x]+'.outputTranslate',"Spine_Ribbon_lowDef.controlPoints["+str(x)+"]")
+    cmds.connectAttr(dmMTXL[x]+'.outputTranslate',"Spine_Ribbon_lowDef.controlPoints["+str(y[x])+"]")
+
+
+
+#__________________________________________________________________________________________________________ 
+
+#Connecter les rotates et scale de Bind_Chest_Offset:
+
+multSquashMin=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Squash_Min")
+NegativeArcL=cmds.shadingNode('multDoubleLinear', asUtility=True, n="negative_Arc_Length_Ribbon")
+multbyZero1=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_By_0_if_Chest_sup_SquashMaxvalue")
+multbyZero2=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_By_0_if_Chest_sup_Squash_Maxvalue")
+
+diffInitialArcL=cmds.shadingNode('addDoubleLinear', asUtility=True, n="diff_btwn_InitialLength_and_ArcLengthRibbon")
+condifSquashMax=cmds.shadingNode('condition', asUtility=True, n="cond_if_Squash_maxValue")
+condifSquashAttr=cmds.shadingNode('condition', asUtility=True, n="cond_if_Squash_attribute")
+
+cmds.shadingNode('reverse', asUtility=True, n="reverse_Value_SQUASH_Attr")
+cmChestSquash=cmds.shadingNode('composeMatrix', asUtility=True, n="cM_Offset_Chest_Squash")
+
+cmds.setAttr(condifSquashAttr+'.operation',5)
+cmds.setAttr(condifSquashAttr+'.secondTerm',1)
+
+cmds.setAttr(condifSquashAttr+'.operation',4)
+cmds.setAttr(condifSquashAttr+'.colorIfTrueR',1)
+cmds.setAttr(condifSquashAttr+'.colorIfTrueG',0)
+cmds.setAttr(condifSquashAttr+'.colorIfTrueB',0)
+cmds.setAttr(condifSquashAttr+'.colorIfFalseR',0)
+cmds.setAttr(condifSquashAttr+'.colorIfFalseR',1)
+cmds.setAttr(condifSquashAttr+'.colorIfFalseR',0)
+
+cmds.connectAttr(ctrlOptions[0]+'.SQUASH','reverse_Value_SQUASH_Attr.inputX')
+cmds.connectAttr('reverse_Value_SQUASH_Attr.outputX',condifSquashAttr+'.colorIfTrueR')
+cmds.connectAttr(ctrlOptions[0]+'.SQUASH',condifSquashAttr+'.firstTerm')
+cmds.connectAttr(condifSquashAttr+'.outColorR',multbyZero2+'.input2')
+cmds.connectAttr(ctrlOptions[0]+'.Squash_Min',multSquashMin+'.input2')
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',multSquashMin+'.input1')
+cmds.connectAttr(crvISOInfo+'.arcLength',NegativeArcL+'.input1')
+cmds.connectAttr(NegativeArcL+'.output',diffInitialArcL+'.input2')
+cmds.connectAttr(diffInitialArcL+'.output',multbyZero1+'.input1')
+cmds.connectAttr(crvISOInfo+'.arcLength',condifSquashMax+'.firstTerm')
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',condifSquashMax+'.secondTerm')
+cmds.connectAttr(condifSquashMax+'.outColorR',multbyZero1+'.input2')
+cmds.connectAttr(multbyZero1+'.output',multbyZero2+'.input1')
+cmds.connectAttr(multbyZero2+'.output',cmChestSquash+'.inputTranslateY')
+
+multChestInfoLSquash=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Chest_Info_Length_Squash")
+dmChestILSquash=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Chest_Info_Length_Squash")
+
+cmds.connectAttr(cmChestSquash+'.outputMatrix',multChestInfoLSquash+'.matrixIn[0]')
+cmds.connectAttr(CTRL_IkChest[0]+'.worldMatrix[0]',multChestInfoLSquash+'.matrixIn[1]')
+cmds.connectAttr(locInitial[0]+"_Offset_01.parentInverseMatrix[0]",multChestInfoLSquash+'.matrixIn[2]')
+cmds.connectAttr(multChestInfoLSquash+'.matrixSum',dmChestILSquash+'.inputMatrix')
+cmds.connectAttr(dmChestILSquash+'.outputTranslate',locInitial[0]+"_Offset_01.translate")
+cmds.connectAttr(dmChestILSquash+'.outputRotate',locInitial[0]+"_Offset_01.rotate")
+cmds.connectAttr(dmChestILSquash+'.outputScale',locInitial[0]+"_Offset_01.scale")
+
+addTwistChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_TwistChest_01")
+
+cmds.connectAttr(dmIkChestR+'.outputRotateY',addTwistChest+'.input2')
+cmds.connectAttr(dmIkChestR+'.outputRotateX',BindChest[0]+'_Offset_01.rotateX')
+cmds.connectAttr(dmIkChestR+'.outputRotateZ',BindChest[0]+'_Offset_01.rotateZ')
+cmds.connectAttr(ctrlOptions[0]+".Twist_Chest",addTwistChest+'.input1')
+cmds.connectAttr(addTwistChest+'.output',BindChest[0]+'_Offset_01.rotateY')
+cmds.connectAttr(dmIkChestR+'.outputScale',BindChest[0]+'_Offset_01.scale')
+
+
+#Connexion de Const_Ik_Mid:
+    
+cmFKMid=cmds.shadingNode('composeMatrix', asUtility=True, n="cm_FK_Mid")
+multCstrIkMid=cmds.shadingNode('multMatrix', asUtility=True, n="mult_MTX_Cstr_Ik_Mid")
+dmCstrIkMid=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Cstr_Ik_Mid")
+
+cmds.connectAttr(Fk_Mid[0]+"_Offset_01.translateY",cmFKMid+'.inputTranslateY')
+cmds.connectAttr(cmFKMid+'.outputMatrix',multCstrIkMid+'.matrixIn[0]')
+cmds.connectAttr(locAxisIkPelvis[0]+'.worldMatrix[0]',multCstrIkMid+'.matrixIn[1]')
+cmds.connectAttr(ConstIkMid[0]+'.parentInverseMatrix[0]',multCstrIkMid+'.matrixIn[2]')
+cmds.connectAttr(multCstrIkMid+'.matrixSum',dmCstrIkMid+'.inputMatrix')
+cmds.connectAttr(dmCstrIkMid+'.outputRotate',ConstIkMid[0]+'.rotate')
+cmds.connectAttr(dmCstrIkMid+'.outputTranslate',ConstIkMid[0]+'.translate')
+
+#Connexion de Rotation_Ik_Mid_Offset:
+    
+cmds.connectAttr(Fk_Mid[0]+'.translate',RotIkMid[0]+'.translate')
+cmds.connectAttr(Fk_Mid[0]+'.rotateY',RotIkMid[0]+'.rotateY')
+
+#__________________________________________________________________________________________________________ 
+
+#Connecter les rotates et scale de Bind_Pelvis_Offset:
+
+cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Twist_Pelvis")
+cmds.connectAttr('DecMatX_Bind_Pelvis_Offset_01.outputRotateX',"Bind_Pelvis_Offset_01.rotateX")
+cmds.connectAttr('DecMatX_Bind_Pelvis_Offset_01.outputRotateZ',"Bind_Pelvis_Offset_01.rotateZ")
+cmds.connectAttr('DecMatX_Bind_Pelvis_Offset_01.outputRotateY',"add_Twist_Pelvis.input2")
+cmds.connectAttr('CTRL_Options.Twist_Pelvis','add_Twist_Pelvis.input1')
+cmds.connectAttr("add_Twist_Pelvis.output","Bind_Pelvis_Offset_01.rotateY",f=True)
+
+#__________________________________________________________________________________________________________ 
+
+#Connection Stretch/Squash/Twist : Joints
+
+#Partie Commune
+
+    #Creation Node
+
+divVolXZInit=cmds.shadingNode('multiplyDivide', asUtility=True, n="Div_Volume_XZ_ArcLength_initialLength")
+divVolXZFinal=cmds.shadingNode('multiplyDivide', asUtility=True, n="Div_volume_XZ_Final")
+condVol=cmds.shadingNode('condition', asUtility=True, n="cond_Volume")
+condStretchVol=cmds.shadingNode('condition', asUtility=True, n="cond_Stretch_Volume")
+condSquashVol=cmds.shadingNode('condition', asUtility=True, n="cond_Squash_Volume")
+condStretchVol2=cmds.shadingNode('condition', asUtility=True, n="cond_Stretch_Volume_02")
+condSquashVol2=cmds.shadingNode('condition', asUtility=True, n="cond_Squash_Volume_02")
+
+cmds.setAttr(divVolXZInit+'.operation',2)
+
+cmds.setAttr(divVolXZFinal+'.operation',2)
+cmds.setAttr(divVolXZFinal+'.input1X',1)
+
+cmds.setAttr(condVol+'.operation',0)
+cmds.setAttr(condVol+'.secondTerm',1)
+
+cmds.setAttr(condStretchVol+'.operation',0)
+cmds.setAttr(condStretchVol+'.secondTerm',1)
+cmds.setAttr(condStretchVol+'.colorIfFalseR',0)
+
+cmds.setAttr(condSquashVol+'.operation',0)
+cmds.setAttr(condSquashVol+'.secondTerm',1)
+cmds.setAttr(condSquashVol+'.colorIfFalseR',0)
+
+cmds.setAttr(condStretchVol2+'.operation',0)
+cmds.setAttr(condStretchVol2+'.secondTerm',1)
+cmds.setAttr(condSquashVol2+'.colorIfFalseR',1)
+
+cmds.setAttr(condSquashVol2+'.operation',0)
+cmds.setAttr(condSquashVol2+'.secondTerm',1)
+cmds.setAttr(condSquashVol2+'.colorIfFalseR',1)
+
+multFactorVolXZ=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Factor_Volume_XZ")
+condMix=cmds.shadingNode('condition', asUtility=True, n="cond_Volume_Mix")
+cmds.setAttr(condMix+'.operation',4)
+cmds.setAttr(condMix+'.secondTerm',1)
+
+
+    #Connection Nodes
+
+cmds.connectAttr(crvISOInfo+'.arcLength',divVolXZInit+'.input1X')
+cmds.connectAttr(locAxisMidOffset1[0]+'.translateY',divVolXZInit+'.input2X')
+cmds.connectAttr(divVolXZInit+'.outputX',condVol+'.colorIfTrueR')
+cmds.connectAttr(condVol+'.outColorR',divVolXZFinal+'.input2X')
+
+cmds.connectAttr(ctrlOptions[0]+'.Volume_Activation',condVol+'.firstTerm')
+cmds.connectAttr(ctrlOptions[0]+'.Volume_Factor',multFactorVolXZ+'.input2')
+cmds.connectAttr(ctrlOptions[0]+'.SQUASH',condSquashVol+'.colorIfTrueR')
+cmds.connectAttr(ctrlOptions[0]+'.Squash_Volume',condSquashVol+'.firstTerm')
+cmds.connectAttr(ctrlOptions[0]+'.STRETCH',condStretchVol+'.colorIfTrueR')
+cmds.connectAttr(ctrlOptions[0]+'.Stretch_Volume',condStretchVol+'.firstTerm')
+
+cmds.connectAttr(divVolXZFinal+'.outputX',condStretchVol2+'.colorIfTrueR')
+cmds.connectAttr(condStretchVol+'.outColorR',condStretchVol2+'.firstTerm')
+cmds.connectAttr(condSquashVol+'.outColorR',condSquashVol2+'.firstTerm')
+
+cmds.connectAttr(divVolXZFinal+'.outputX',condSquashVol2+'.colorIfTrueR')
+cmds.connectAttr(condStretchVol2+'.outColorR',condMix+'.colorIfTrueR')
+cmds.connectAttr(condSquashVol2+'.outColorR',condMix+'.colorIfFalseR')
+
+cmds.connectAttr(divVolXZFinal+'.outputX',condMix+'.firstTerm')
+cmds.connectAttr(condMix+'.outColorR',multFactorVolXZ+'.input1')
+    
+#Partie Individuelle
+
+cmds.select("TwistScale_RibbonSpine*")
+TwistSlst=cmds.ls(selection=True)
+['TwistScale_RibbonSpine_01', 'TwistScale_RibbonSpine_02', 'TwistScale_RibbonSpine_03', 'TwistScale_RibbonSpine_04', 'TwistScale_RibbonSpine_05']
+
+lst=["Point01","Point02","Point03","Point04","Point05"]
+
+multby2Vol=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_by_2_offset_Volume")
+cmds.setAttr(multby2Vol+'.input1',0.5)
+multNegVolI=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Neg_Volume_Intensity")
+cmds.setAttr(multNegVolI+'.input2',-1)
+addInputMinVol=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Offset_InputMin_Volume")
+cmds.setAttr(addInputMinVol+'.input2',1)
+cmds.connectAttr(ctrlOptions[0]+'.Volume_Offset',multby2Vol+'.input2')
+cmds.connectAttr(ctrlOptions[0]+'.Volume_Intensity',multNegVolI+'.input1')
+cmds.connectAttr(multNegVolI+'.output',addInputMinVol+'.input1')
+
+#DUr
+
+for x in range(0,len(lst)):
+    VolEnable=cmds.shadingNode('condition', asUtility=True, n="cond_Enable_Volume_Column_"+lst[x])
+    multTwistPelvis=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Twist_Pelvis_"+lst[x])
+    multTwistChest=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Twist_Chest_"+lst[x])
+    
+#_____________
+    if x!=2:
+        multTwistMid=cmds.shadingNode('multDoubleLinear', asUtility=True, n="mult_Twist_Mid_"+lst[x])
+        addTwistMid=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Twist_Mid_"+lst[x])
+    else:
+        addTwistPelvis=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Twist_Pelvis_"+lst[x])
+        pass
+#_____________  
+      
+
+    addTwistChest=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Twist_Chest_"+lst[x])
+    addVolume=cmds.shadingNode('addDoubleLinear', asUtility=True, n="add_Twist_Volume_"+lst[x])
+    rvScaleXZ=cmds.shadingNode('remapValue', asUtility=True, n="rv_Scale_XZ_"+lst[x])
+    
+    cmds.setAttr(rvScaleXZ+'.outputMin',1)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[0].value_Interp",3)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".color[0].color_Interp",2)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[0].value_FloatValue",0)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[0].value_Position",0)
+    
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[1].value_FloatValue",0)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[1].value_Position",1)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[1].value_Interp",3)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".color[1].color_Interp",2)
+    
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[2].value_FloatValue",1)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[2].value_Position",0.5)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[2].value_Interp",3)
+    
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[3].value_FloatValue",0.5)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[3].value_Position",0.25)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[3].value_Interp",3)
+
+    
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[4].value_FloatValue",0.5)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[4].value_Position",0.75)
+    cmds.setAttr("rv_Scale_XZ_"+lst[x]+".value[4].value_Interp",3)
+
+#_____________   
+ 
+    if x==0:
+        cmds.setAttr(multTwistPelvis+'.input1',0.85)
+        cmds.setAttr(multTwistMid+'.input1',0.25)
+        cmds.setAttr(multTwistChest+'.input1',0.15)
+    else:
+        pass
+#_____________    
+    
+    if x==1:
+        cmds.setAttr(multTwistPelvis+'.input1',0.7)
+        cmds.setAttr(multTwistMid+'.input1',0.5)
+        cmds.setAttr(multTwistChest+'.input1',0.3)
+    else:
+        pass
+#_____________    
+    
+    if x==2:
+        cmds.setAttr(multTwistPelvis+'.input1',0.5)
+        cmds.setAttr(multTwistChest+'.input1',0.5)
+    else:
+        pass
+#_____________    
+    
+    if x==3:
+        cmds.setAttr(multTwistPelvis+'.input1',0.3)
+        cmds.setAttr(multTwistMid+'.input1',0.5)
+        cmds.setAttr(multTwistChest+'.input1',0.7)
+    else:
+        pass
+#_____________        
+        
+    if x==4:
+        cmds.setAttr(multTwistPelvis+'.input1',0.150)
+        cmds.setAttr(multTwistMid+'.input1',0.250)
+        cmds.setAttr(multTwistChest+'.input1',0.850)
+    else:
+        pass
+#_____________    
+    
+    if x<=1:
+        cmds.connectAttr(multFactorVolXZ+'.output',rvScaleXZ+'.outputMax')
+        cmds.connectAttr(multby2Vol+'.output',addVolume+'.input2')
+        
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Pelvis',multTwistPelvis+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Mid',multTwistMid+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Chest',multTwistChest+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Volume_Intensity',rvScaleXZ+'.inputMin')
+        
+        cmds.connectAttr(multTwistPelvis+'.output',addTwistMid+'.input1')
+        cmds.connectAttr(multTwistMid+'.output',addTwistMid+'.input2')
+        
+        cmds.connectAttr(addTwistMid+'.output',addTwistChest+'.input2')
+        cmds.connectAttr(multTwistChest+'.output',addTwistChest+'.input1')
+        cmds.connectAttr(multTwistChest+'.input1',addVolume+'.input1')
+        
+        cmds.connectAttr(addVolume+'.output',rvScaleXZ+'.inputValue')
+        
+        cmds.connectAttr(addTwistChest+'.output',TwistSlst[x]+'.rotateY')
+
+            
+    else:
+        pass
+#_____________ 
+    
+    if x==2:
+        cmds.connectAttr(multFactorVolXZ+'.output',rvScaleXZ+'.outputMax')
+        cmds.connectAttr(multby2Vol+'.output',addVolume+'.input2')
+        cmds.connectAttr(addInputMinVol+'.output',rvScaleXZ+'.inputMax')
+        
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Pelvis',multTwistPelvis+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Chest',multTwistChest+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Mid',addTwistChest+'.input2')
+        
+        cmds.connectAttr(multTwistPelvis+'.output',addTwistPelvis+'.input2')
+        cmds.connectAttr(addTwistChest+'.output',addTwistPelvis+'.input1')
+
+        cmds.connectAttr(multTwistChest+'.output',addTwistChest+'.input1')
+        cmds.connectAttr(multTwistPelvis+'.input1',addVolume+'.input1')
+        
+        cmds.connectAttr(addVolume+'.output',rvScaleXZ+'.inputValue')
+        
+        cmds.connectAttr(addTwistPelvis+'.output',TwistSlst[x]+'.rotateY')
+
+        
+    else:
+        pass
+#_____________ 
+
+    if x>2:
+        cmds.connectAttr(multFactorVolXZ+'.output',rvScaleXZ+'.outputMax')
+        
+        
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Pelvis',multTwistPelvis+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Mid',multTwistMid+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Twist_Chest',multTwistChest+'.input2')
+        cmds.connectAttr(ctrlOptions[0]+'.Volume_Offset',addVolume+'.input2')
+        
+        cmds.connectAttr(multTwistPelvis+'.output',addTwistMid+'.input1')
+        cmds.connectAttr(multTwistMid+'.output',addTwistMid+'.input2')
+        
+        cmds.connectAttr(addTwistMid+'.output',addTwistChest+'.input1')
+        cmds.connectAttr(multTwistChest+'.output',addTwistChest+'.input2')
+        cmds.connectAttr(multTwistChest+'.input1',addVolume+'.input1')
+        
+        cmds.connectAttr(addInputMinVol+'.output',rvScaleXZ+'.inputMax')
+        cmds.connectAttr(addVolume+'.output',rvScaleXZ+'.inputValue')
+        
+        cmds.connectAttr(addTwistChest+'.output',TwistSlst[x]+'.rotateY')
+
+        
+    else:
+        pass
+
+    cmds.connectAttr(rvScaleXZ+'.outValue',VolEnable+'.colorIfTrueR')
+    cmds.connectAttr(ctrlOptions[0]+'.Volume_Activation',VolEnable+'.firstTerm')
+    cmds.setAttr(VolEnable+'.secondTerm',1)
+    cmds.connectAttr(VolEnable+'.outColorR',TwistSlst[x]+'.scaleX')
+    cmds.connectAttr(VolEnable+'.outColorR',TwistSlst[x]+'.scaleZ')
+
+cmds.shadingNode('multiplyDivide', asUtility=True, n="mult_offset_point04")
+cmds.connectAttr(ctrlOptions[0]+'.Volume_Offset',"mult_offset_point04.input1X")
+cmds.setAttr("mult_offset_point04.input2X",0.785)
+cmds.connectAttr("mult_offset_point04.outputX","add_Twist_Volume_Point04.input2",f=True)
+
+#__________________________________________________________________________________________________________ 
+
+#RibbonSpine_xx_Offset:
+    
+cmds.select("RibbonSpine_*"+"*_Offset_01")
+RibbonSpineOff=cmds.ls(selection=True)
+
+cmds.select("div_Point_*")
+divPointlst=cmds.ls(selection=True)
+
+for x in range(0,len(lst)):
+    
+    #Connection Rotates : RibbonSpine_xx_Offset:
+    
+    PointSurfInf=cmds.shadingNode('pointOnSurfaceInfo', asUtility=True, n="pointSurfInfo_"+lst[x])
+    VectorProduct=cmds.shadingNode('vectorProduct', asUtility=True, n="VP_MTX_Rotation_"+lst[x])
+    cmds.setAttr(VectorProduct+'.operation',2)
+    FbyFMatrix=cmds.shadingNode('fourByFourMatrix', asUtility=True, n="MTX_Rotation_"+lst[x])
+    dmPoint05=cmds.shadingNode('decomposeMatrix', asUtility=True, n="dm_Rotation_"+lst[x])
+
+    cmds.setAttr(PointSurfInf+'.parameterU',0.5)
+    cmds.connectAttr("rebuildSurface_SpineRibbon.outputSurface",PointSurfInf+'.inputSurface')
+    cmds.connectAttr(divPointlst[x]+".outputX",PointSurfInf+'.parameterV')
+    cmds.connectAttr(PointSurfInf+'.normal',VectorProduct+'.input1')
+    cmds.connectAttr(PointSurfInf+'.tangentV',VectorProduct+'.input2')
+
+    cmds.connectAttr(PointSurfInf+'.normalX',FbyFMatrix+'.in00')
+    cmds.connectAttr(PointSurfInf+'.normalY',FbyFMatrix+'.in01')
+    cmds.connectAttr(PointSurfInf+'.normalZ',FbyFMatrix+'.in02')
+
+    cmds.connectAttr(PointSurfInf+'.tangentVx',FbyFMatrix+'.in10')
+    cmds.connectAttr(PointSurfInf+'.tangentVy',FbyFMatrix+'.in11')
+    cmds.connectAttr(PointSurfInf+'.tangentVz',FbyFMatrix+'.in12')
+
+    cmds.connectAttr(PointSurfInf+'.positionX',FbyFMatrix+'.in30')
+    cmds.connectAttr(PointSurfInf+'.positionY',FbyFMatrix+'.in31')
+    cmds.connectAttr(PointSurfInf+'.positionZ',FbyFMatrix+'.in32')
+
+    cmds.connectAttr(VectorProduct+'.outputX',FbyFMatrix+'.in20')
+    cmds.connectAttr(VectorProduct+'.outputY',FbyFMatrix+'.in21')
+    cmds.connectAttr(VectorProduct+'.outputZ',FbyFMatrix+'.in22')
+
+    cmds.connectAttr(FbyFMatrix+'.output',dmPoint05+'.inputMatrix')
+    cmds.connectAttr(dmPoint05+'.outputRotate',RibbonSpineOff[x]+'.rotate')
+
+
+
+#__________________________________________________________________________________________________________ 
+    
+#Connection Scales : RibbonSpine_xx_Offset:
+
+AvScaleMid=cmds.shadingNode('plusMinusAverage', asUtility=True, n="Average_Scale_MidChest")
+cmds.setAttr(AvScaleMid+'.operation',3)
+AvScalePelvis=cmds.shadingNode('plusMinusAverage', asUtility=True, n="Average_Scale_PelvisMid")
+cmds.setAttr(AvScalePelvis+'.operation',3)
+
+cmds.connectAttr(dmIkChestR+'.outputScale',RibbonSpineOff[4]+'.scale')
+cmds.connectAttr(dmIkChestR+'.outputScale',AvScaleMid+'.input3D[1]')
+cmds.connectAttr(dmIkMidR+'.outputScale',AvScaleMid+'.input3D[0]')
+cmds.connectAttr(AvScaleMid+'.output3D',RibbonSpineOff[3]+'.scale')
+cmds.connectAttr(dmIkMidR+'.outputScale',RibbonSpineOff[2]+'.scale')
+cmds.connectAttr(dmIkMidR+'.outputScale',AvScalePelvis+'.input3D[1]')
+cmds.connectAttr(dmIkPelvisR+'.outputScale',AvScalePelvis+'.input3D[0]')
+cmds.connectAttr(AvScalePelvis+'.output3D',RibbonSpineOff[1]+'.scale')
+cmds.connectAttr(dmIkPelvisR+'.outputScale',RibbonSpineOff[0]+'.scale')
+
+    
+#__________________________________________________________________________________________________________ 
+
+
+#Petit Clean :
+        
+    #Lock Transform
+
+cmds.setAttr(ctrlOptions[0]+'.translateX', channelBox=False, lock=True, keyable=False )
+cmds.setAttr(ctrlOptions[0]+'.translateY', channelBox=False, lock=True, keyable=False )
+cmds.setAttr(ctrlOptions[0]+'.translateZ', channelBox=False, lock=True, keyable=False )
+cmds.setAttr(ctrlOptions[0]+'.rotateX', channelBox=False, lock=True, keyable=False )
+cmds.setAttr(ctrlOptions[0]+'.rotateY', channelBox=False, lock=True, keyable=False )
+cmds.setAttr(ctrlOptions[0]+'.rotateZ', channelBox=False, lock=True, keyable=False )
+
+cmds.select("CTRL_*")
+lst=cmds.ls(selection=True)
+ShapeList= [s for s in lst if "_Offset" not in s]
+CtrlList= [s for s in ShapeList if "Shape" not in s]
+cmds.select(CtrlList)
+
+for i in CtrlList :
+    cmds.setAttr(i+'.scaleX', channelBox=False, lock=True, keyable=False )
+    cmds.setAttr(i+'.scaleY', channelBox=False, lock=True, keyable=False )
+    cmds.setAttr(i+'.scaleZ', channelBox=False, lock=True, keyable=False )
+
+
+    #Manage Visibility
+
+condVisTangent=cmds.shadingNode('condition', asUtility=True, n="Cond_LevelDetail_Tangent")
+condVisJoint=cmds.shadingNode('condition', asUtility=True, n="Cond_Vis_Joint")
+condVisCTRL=cmds.shadingNode('condition', asUtility=True, n="Cond_LevelDetail_CTRL_Joint")
+
+cmds.setAttr(condVisJoint+'.operation',0)
+cmds.setAttr(condVisJoint+'.secondTerm',1)
+cmds.setAttr(condVisJoint+'.colorIfTrueR',1)
+cmds.setAttr(condVisJoint+'.colorIfFalseR',0)
+
+cmds.setAttr(condVisTangent+'.operation',3)
+cmds.setAttr(condVisTangent+'.secondTerm',2)
+cmds.setAttr(condVisTangent+'.colorIfTrueR',1)
+cmds.setAttr(condVisTangent+'.colorIfFalseR',0)
+
+cmds.setAttr(condVisCTRL+'.operation',3)
+cmds.setAttr(condVisCTRL+'.secondTerm',3)
+cmds.setAttr(condVisCTRL+'.colorIfTrueR',1)
+cmds.setAttr(condVisCTRL+'.colorIfFalseR',0)
+
+cmds.connectAttr(ctrlOptions[0]+'.FK_Visibility',UpperBody[0]+'.lodVisibility')
+cmds.connectAttr(ctrlOptions[0]+'.FK_Visibility',Fk_Chest[0]+'.lodVisibility')
+cmds.connectAttr(ctrlOptions[0]+'.FK_Visibility',Fk_Mid[0]+'.lodVisibility')
+cmds.connectAttr(ctrlOptions[0]+'.IK_Visibility',CTRL_IkChest[0]+'.lodVisibility')
+cmds.connectAttr(ctrlOptions[0]+'.IK_Visibility',CTRL_IkPelvis[0]+'.lodVisibility')
+cmds.connectAttr(ctrlOptions[0]+'.IK_Visibility',CTRL_IkMid[0]+'.lodVisibility')
+cmds.connectAttr(ctrlOptions[0]+'.Level_Details',condVisTangent+'.firstTerm')
+cmds.connectAttr(ctrlOptions[0]+'.Level_Details',condVisCTRL+'.firstTerm')
+cmds.connectAttr(ctrlOptions[0]+'.Joint_Visibility',condVisJoint+'.firstTerm')
+
+cmds.connectAttr(condVisTangent+'.outColorR',CTRL_TanChest[0]+'.lodVisibility')
+cmds.connectAttr(condVisTangent+'.outColorR',CTRL_TanPelvis[0]+'.lodVisibility')
+
+cmds.select("CTRL_RibbonSpine_*")
+lst=cmds.ls(selection=True)
+ShapeList= [s for s in lst if "Shape" in s]
+print(ShapeList)
+
+for i in ShapeList:
+    cmds.connectAttr(condVisCTRL+'.outColorR',i+'.lodVisibility')
+
+cmds.select("Bind_*")
+lst=cmds.ls(selection=True)
+
+for i in lst:
+    cmds.connectAttr(condVisJoint+'.outColorR',i+'.lodVisibility')
+
+
+    #Ranger la chambre
+    
+cmds.createNode('transform',n="GRP_Curves")
+cmds.createNode('transform',n="GRP_Surfaces")
+cmds.select(crvSpine,crvIso,crvSquash)
+lst=cmds.ls(selection=True)
+cmds.parent(lst,"GRP_Curves")
+cmds.parent(endSpine,"GRP_Curves")
+cmds.parent(startSpine,"GRP_Curves")
+cmds.parent("Spine_Ribbon_lowDef","GRP_Surfaces")
+cmds.parent("Spine_Ribbon_highDef","GRP_Surfaces")
+cmds.parent("GRP_Surfaces","ExtraNodes_To_Hide")
+cmds.parent("GRP_Curves","ExtraNodes_To_Hide")
+cmds.setAttr("GRP_Locs.visibility",0)
+cmds.setAttr("GRP_Curves.visibility",0)
+cmds.setAttr("GRP_Surfaces.visibility",0)
+
+#__________________________________________________________________________________________________________ 
